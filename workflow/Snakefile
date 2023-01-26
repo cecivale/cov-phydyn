@@ -1,8 +1,8 @@
 # ------------------------------------------------------------------------------
 #          ---        
-#        / o o \    Project:  cov-armee
+#        / o o \    Project:  cov-phydyn
 #        V\ Y /V    Snakefile main analysis for SARS-CoV-2 MTBD phylodynamics
-#    (\   / - \     2 December 2022 updated 20 December 2022
+#    (\   / - \     2 December 2022 modified on 26 January 2023
 #     )) /    |     
 #     ((/__) ||     Code by Ceci VA 
 # ------------------------------------------------------------------------------
@@ -12,19 +12,27 @@ import pandas as pd
 
 configfile: "config.yaml"
 localrules: all, clean
-DEMES = config["data"].keys()
-SAMPLES = config['subsample']['method']
-DEATH_RATE = config['beast']["params"]['death_rate']
+
+DATASET = config["run"]["dataset"]
+DEMES = config["data"][DATASET].keys()
+SUBSAMPLING = config['subsample']['method']
 DATA_SEED = range(0, config['subsample']['replicates'])
-ANALYSIS = config['beast']['xml']
-BEAST_SEED = range(1, config['beast']['replicates'] + 1)
+ANALYSIS = config['run']['beast_analysis']
+BEAST_SEED = range(1, config['beast'][ANALYSIS]['replicates'] + 1)
 
 
 rule all: 
     input:
-        trace = expand("results/beast/{analysis_name}/rep{dseed}/{analysis_name}_{sample}_d{death_rate}.{dseed}.comb.log", analysis_name = ANALYSIS, sample = SAMPLES, death_rate = DEATH_RATE, bseed = BEAST_SEED, dseed = DATA_SEED)
-        #aln = expand("data/aln_{sample}.{dseed}.fasta", sample = SAMPLES, dseed = DATA_SEED),
-        #ml_tree = expand("results/trees/ml_tree_{sample}.{dseed}.iqtree", sample = SAMPLES, dseed = 0)
+        trace = expand("results/{dataset}/beast/{analysis}/{subsampling}.{dseed}.comb.log", 
+            dataset = DATASET, 
+            analysis = ANALYSIS, 
+            subsampling = SUBSAMPLING, 
+            bseed = BEAST_SEED, 
+            dseed = DATA_SEED),
+        ml_tree = expand("results/{dataset}/mltree/{subsampling}.{dseed}.iqtree", 
+            dataset = DATASET, 
+            subsampling = SUBSAMPLING, 
+            dseed = DATA_SEED)
 
 
 rule clean:
@@ -40,7 +48,7 @@ rule load_metadata:
         Load with LAPIS all high quality (nextclade qc score between 0 and 10) human sequences metadata in GISAID for {wildcards.deme} from config file.
         """
     output:
-        metadata = "results/datasets/{deme}/metadata_{deme}.tsv"
+        metadata = "results/datasets/{deme}/metadata.tsv"
     log:
         "logs/load_metadata_{deme}.txt"
     conda:
@@ -56,20 +64,20 @@ rule load_metadata:
 rule subsample:
     message:
         """
-        Subsample sequences from deme {wildcards.deme} sequence metadata by sampling method {wildcards.sample}, seed {wildcards.dseed}.
+        Subsample sequences from deme {wildcards.deme} sequence metadata by subsampling method {wildcards.subsampling}, seed {wildcards.dseed}.
         """
     input:
         metadata = rules.load_metadata.output.metadata,
         cases = config["files"]["cases"]
     params:
-        n = lambda wildcards: config["data"][wildcards.deme]["n"],
+        n = lambda wildcards: config["data"][wildcards.dataset][wildcards.deme]["n"],
         include = config["files"]["include"],
         exclude = config["files"]["exclude"],
         seq_id = config['lapis']['seq_id']
     output:
-        metadata = "results/datasets/{deme}/subsample_{deme}_{sample}.{dseed}.tsv"
+        metadata = "results/{dataset}/data/{deme}/subsample_{subsampling}.{dseed}.tsv"
     log:
-        "logs/subsample_{deme}_{sample}.{dseed}.txt"
+        "logs/subsample_{dataset}_{deme}_{subsampling}.{dseed}.txt"
     conda:
         "envs/r-genetic-data.yaml"
     shell:
@@ -79,7 +87,7 @@ rule subsample:
             --include_file {params.include} \
             --exclude_file {params.exclude} \
             --n {params.n} \
-            --method {wildcards.sample} \
+            --method {wildcards.subsampling} \
             --seq_id {params.seq_id} \
             --cases_file {input.cases} \
             --seed {wildcards.dseed} \
@@ -87,8 +95,8 @@ rule subsample:
         """
 
 def _get_subsamples(wildcards):
-    files = expand("results/datasets/{deme}/subsample_{deme}_{{sample}}.{{dseed}}.tsv",
-        deme=config["data"].keys())
+    files = expand("results/{dataset}/data/{deme}/subsample_{{subsampling}}.{{dseed}}.tsv",
+        deme = DEMES, dataset = DATASET)
     return files
 
 
@@ -100,9 +108,9 @@ rule combine_subsamples:
     input:
         subsample = _get_subsamples
     output:
-        combined = "results/datasets/ids_{sample}.{dseed}.tsv"
+        combined = "results/datasets/ids_{subsampling}.{dseed}.tsv"
     log:
-        "logs/combine_subsamples_{sample}.{dseed}.txt"
+        "logs/combine_subsamples_{subsampling}.{dseed}.txt"
     shell:
         """
         awk '(NR == 1) || (FNR > 1)' {input.subsample} > {output.combined} 2>&1 | tee {log}
@@ -116,9 +124,9 @@ rule load_sequences:
     input:
         ids = rules.combine_subsamples.output.combined
     output:
-        aln = "results/datasets/aln_{sample}.{dseed}.fasta"
+        aln = "results/datasets/aln_{subsampling}.{dseed}.fasta"
     log:
-        "logs/load_seqs_{sample}.{dseed}.txt" # TODO add log, change run to shell
+        "logs/load_seqs_{subsampling}.{dseed}.txt" # TODO add log, change run to shell
     conda:
         "envs/python-genetic-data.yaml"
     shell:
@@ -135,88 +143,86 @@ rule ml_tree:
     input:
         aln = rules.load_sequences.output.aln
     output:
-        tree = "results/trees/ml_tree_{sample}.{dseed}.iqtree"
+        tree = "results/{dataset}/mltree/{subsampling}.{dseed}.iqtree"
     params:
-        tree_args = config["ml_tree"]["tree_args"]
+        tree_args = config["ml_tree"]["tree_args"],
+        file_name = "results/{dataset}/mltree/{subsampling}.{dseed}"
     conda:
         "envs/iqtree2.yaml"
     shell:
         """
-        iqtree2 -s {input.aln} -m GTR \
+        iqtree2 -s {input.aln}  \
         {params.tree_args} \
-        --prefix results/trees/ml_tree_{wildcards.sample}.{wildcards.dseed}
+        --prefix {params.file_name} 
         rm -f results/trees/*.ckp.gz 
         rm -f results/trees/*.uniqueseq.phy 
         rm -f results/trees/*.nex 
-        mv results/trees/ml_tree_{wildcards.sample}.{wildcards.dseed}.log logs/ml_tree_{wildcards.sample}.{wildcards.dseed}.log
+        mv {params.file_name}.log logs/ml_tree_{wildcards.dataset}_{wildcards.subsampling}.{wildcards.dseed}.log
         """
 
 
 rule beast:
     """
-    Running BEAST2 analysis {wildcards.analysis_name} BDMM-Prime, MCMC chain {wildcards.bseed}, subsample {wildcards.sample} {wildcards.dseed}.
+    Running BEAST2 analysis {wildcards.analysis} BDMM-Prime, MCMC chain {wildcards.bseed}, subsample {wildcards.subsampling} {wildcards.dseed}.
     """
     input:
         aln = rules.load_sequences.output.aln,
         ids = rules.combine_subsamples.output.combined,
-        xml = "resources/beast_xml/{analysis_name}.xml",
+        xml = "resources/beast_xml/{analysis}.xml",
     output:
-        trace = "results/beast/{analysis_name}/rep{dseed}/chains/{analysis_name}_{sample}_d{death_rate}.{dseed}.{bseed}_f.log",
-        trees = "results/beast/{analysis_name}/rep{dseed}/chains/{analysis_name}_{sample}_d{death_rate}.{dseed}.{bseed}_f.trees"
+        trace = "results/{dataset}/beast/{analysis}/chains/{subsampling}.{dseed}.{bseed}.f.log",
+        trees = "results/{dataset}/beast/{analysis}/chains/{subsampling}.{dseed}.{bseed}.f.trees"
     params:
-        jar = config["beast"]["jar"],
-        length = config["beast"]["length"],
-        logevery = round(config["beast"]["length"]/10000),
-        action = config["beast"]["action"],
+        jar = lambda wildcards: config["beast"][wildcards.analysis].get("jar") or config["beast"].get("jar"),
+        length = lambda wildcards: config["beast"][wildcards.analysis].get("length") or config["beast"].get("length"),
+        logevery = lambda wildcards: round((config["beast"][wildcards.analysis].get("length") or config["beast"].get("length")) / 10000),
+        action = lambda wildcards: config["beast"][wildcards.analysis].get("action") or config["beast"].get("action"),
         demes = ",".join(list(config["data"].keys())),
-        mrs = lambda wildcards: max(pd.read_csv("results/datasets/ids_" + wildcards.sample + "." + wildcards.dseed + ".tsv", sep = '\t')['seq_name'].str.split("|", expand=True)[2]),
-        #sampling_rate_op = lambda wildcards: "ScaleOperator" if wildcards.sample == "uniform" else "SmartScaleOperator",
-        sampling_rate_op = "ScaleOperator",
-        file_name = "results/beast/{analysis_name}/rep{dseed}/chains/{analysis_name}_{sample}_d{death_rate}.{dseed}.{bseed}"   
+        mrs = lambda wildcards: max(pd.read_csv("results/datasets/ids_" + wildcards.subsampling + "." + wildcards.dseed + ".tsv", sep = '\t')['seq_name'].str.split("|", expand=True)[2]),
+        #sampling_rate_op = lambda wildcards: "ScaleOperator" if wildcards.subsampling == "uniform" else "SmartScaleOperator",
+        # sampling_rate_op = "ScaleOperator",
+        folder_name = "results/{dataset}/beast/{analysis}/chains",
+        file_name = "{subsampling}.{dseed}.{bseed}"   
     log:
-        "logs/beast_{analysis_name}_{sample}_d{death_rate}.{dseed}.{bseed}.txt"
+        "logs/beast_{dataset}_{analysis}_{subsampling}.{dseed}.{bseed}.txt"
     benchmark:
-        "benchmarks/beast_{analysis_name}_{sample}_d{death_rate}.{dseed}.{bseed}.benchmark.txt"
+        "benchmarks/beast_{dataset}_{analysis}_{subsampling}.{dseed}.{bseed}.benchmark.txt"
     threads:
-        config["beast"]["threads"]
+        lambda wildcards: config["beast"][wildcards.analysis].get("threads") or config["beast"].get("threads"),
     resources:
-        runtime = config["beast"]["time"],
-        mem_mb = config["beast"]["mem_mb"]
+        runtime = lambda wildcards: config["beast"][wildcards.analysis].get("time") or config["beast"].get("time"),
+        mem_mb = lambda wildcards: config["beast"][wildcards.analysis].get("mem_mb") or config["beast"].get("mem_mb")
     shell:
         """
-        if test -f "{params.file_name}.state"; then
+        if test -f "{params.folder_name}/{params.file_name}.state"; then
             ACTION={params.action}
+            scp {output.trace} {params.folder_name}/{params.file_name}.log 
+            scp {output.trees} {params.folder_name}/{params.file_name}.trees
         else
             ACTION=overwrite
         fi
 
-        echo $ACTION
-
-        mkdir -p results/beast/{wildcards.analysis_name}/rep{wildcards.dseed}/chains
-        java -Xmx3G -Dbeast.user.package.dir=None -jar {params.jar} \
+        mkdir -p {params.folder_name}
+        
+        java -Xmx3G -jar {params.jar} \
             -D aligned_fasta={input.aln} \
             -D demes="{params.demes}" \
             -D mrs="{params.mrs}" \
-            -D death_rate="{wildcards.death_rate}" \
-            -D samplingRateOperator="{params.sampling_rate_op}" \
             -D chain_length={params.length} \
             -D log_every={params.logevery} \
             -D file_name={params.file_name} \
             -seed {wildcards.bseed} \
-            -statefile "{params.file_name}.state" \
-            -java -$ACTION {input.xml} 2>&1 | tee -a {log} || :
+            -statefile "{params.folder_name}/{params.file_name}.state" \
+            -java -$ACTION {input.xml} 2>&1 | tee -a {log}
         
-        # touch {wildcards.analysis_name}_{wildcards.sample}.{wildcards.dseed}.{wildcards.bseed}.log 
-        # touch {wildcards.analysis_name}_{wildcards.sample}.{wildcards.dseed}.{wildcards.bseed}.trees
-        scp {params.file_name}.log {output.trace}
-        scp {params.file_name}.trees {output.trees} 
-        #find . -type f -empty -delete
+        [ -f {params.folder_name}/{params.file_name}.log ] && mv {params.folder_name}/{params.file_name}.log {output.trace}
+        [ -f {params.folder_name}/{params.file_name}.trees ] && mv {params.folder_name}/{params.file_name}.trees {output.trees} 
         """
 
 
 def _get_trace_tocombine(wildcards):
     files = expand(
-        "results/beast/{{analysis_name}}/rep{{dseed}}/chains/{{analysis_name}}_{{sample}}_d{{death_rate}}.{{dseed}}.{bseed}_f.log",
+        "results/{{dataset}}/beast/{{analysis}}/chains/{{subsampling}}.{{dseed}}.{bseed}.f.log",
         bseed = BEAST_SEED)
     return files
 
@@ -228,14 +234,14 @@ rule combine_trace:
     input:
         trace_files = _get_trace_tocombine    
     output:
-        combined_trace = "results/beast/{analysis_name}/rep{dseed}/{analysis_name}_{sample}_d{death_rate}.{dseed}.comb.log"
+        combined_trace = "results/{dataset}/beast/{analysis}/{subsampling}.{dseed}.comb.log"
     log:
-        "logs/combine_trace_{analysis_name}_{sample}_d{death_rate}.{dseed}.txt"
+        "logs/combine_trace_{dataset}_{analysis}_{subsampling}.{dseed}.txt"
     benchmark:
-        "benchmarks/combine_trace_{analysis_name}_{sample}_d{death_rate}.{dseed}.benchmark.txt"
+        "benchmarks/combine_trace_{dataset}_{analysis}_{subsampling}.{dseed}.benchmark.txt"
     params:
-        jar = config["beast"]["jar"],
-        burnin = config["beast"]["burnin"],
+        jar = lambda wildcards: config["beast"][wildcards.analysis].get("jar") or config["beast"].get("jar"),
+        burnin = lambda wildcards: config["beast"][wildcards.analysis].get("burnin") or config["beast"].get("burnin"),
         input_command = lambda wildcards, input: " -log ".join(input) 
     shell:
         """
