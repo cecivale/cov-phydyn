@@ -9,8 +9,8 @@
 
 
 run:
-  dataset: "swiss21_JanMarch"
-  beast_analysis: "bdmmprime_wt"
+  dataset: "example_data"
+  beast_analysis: "example_analysis_deathrate36"
 
 lapis:
   database: "open"
@@ -19,22 +19,30 @@ lapis:
 
 # One dataset per deme
 data:
-  swiss21_JanMarch:
-    swiss21_JanMarch:
-      ids_file: "resources/swiss21_JanMarch_noAlpha_ids.tsv"
+  example_data:
+    deme1:
+      # ids_file:
       nextcladeQcOverallScoreFrom: 0
       nextcladeQcOverallScoreTo: 10
       country: "Switzerland"
       dateFrom: "2020-12-29"
       dateTo: "2021-02-27"
-      n: 150
+      n: 50
+
+    deme2:
+      nextcladeQcOverallScoreFrom: 0
+      nextcladeQcOverallScoreTo: 10
+      country: "France"
+      dateFrom: "2020-12-29"
+      dateTo: "2021-02-27"
+      n: 50
 
 subsample: # random, cases or uniform
   method: ["cases", "uniform"]
-  replicates: 1
+  replicates: 3
 
 files:
-  cases: "resources/COVID19Cases_geoRegion_renamed.csv" # for cases subsampling method
+  cases: "resources/example_cases.csv" # for cases subsampling method
   include: null
   exclude: null
 
@@ -42,29 +50,25 @@ ml_tree:
   tree_args: " -m GTR -nstop 50 -ninit 20 -bb 1000 " #--date TAXNAME -o 'EPI_ISL_406798|China|2019-12-26' for time tree
 
 beast:
-  jar: "resources/2210_BDMM-Prime.jar"
+  jar: "resources/2301_BDMM-Prime.jar"
   length: 10000000
   time: 7200
   mem_mb: 4096
   threads: 10
   burnin: 10
   
-  bdmmprime_wt:
-    replicates: 1
+  example_analysis_deathrate36:
+    xml: "resources/beast_xml/example_analysis.xml"
+    chains: 5
     action: "resume"
     model_params:
-      death_rate: [36.5, 73.0, 120.0]
+      death_rate: 36.5
   
-  bdmmprime_wt_exposed:
-    jar: "resources/2210_BDMM-Prime.jar"
-    length: 10000000
-    time: 7200
-    mem_mb: 4096
-    threads: 10
-    replicates: 1
+  example_analysis_deathrate73:
+    xml: "resources/beast_xml/example_analysis.xml"
+    chains: 5
     action: "resume"
-    burnin: 10
     model_params:
-      death_rate: [36.5, 73.0, 120.0]
-
+      death_rate: 73
+  
 

@@ -1,0 +1,15 @@
+# Mac
+.DS_Store
+*__pycache__*
+
+# git
+.git/
+
+# snakemake
+.snakemake
+results/
+logs/
+benchmarks/
+
+# big files
+*.tar.xz

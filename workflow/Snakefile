@@ -15,10 +15,10 @@ localrules: all, clean
 
 DATASET = config["run"]["dataset"]
 DEMES = config["data"][DATASET].keys()
-SUBSAMPLING = config['subsample']['method']
-DATA_SEED = range(0, config['subsample']['replicates'])
-ANALYSIS = config['run']['beast_analysis']
-BEAST_SEED = range(1, config['beast'][ANALYSIS]['replicates'] + 1)
+SUBSAMPLING = config["subsample"]["method"]
+DATA_SEED = range(0, config["subsample"]["replicates"])
+ANALYSIS = config["run"]["beast_analysis"]
+BEAST_SEED = range(1, (config["beast"][ANALYSIS].get("chains") or config["beast"].get("chains")) + 1)
 
 
 rule all: 
@@ -168,7 +168,7 @@ rule beast:
     input:
         aln = rules.load_sequences.output.aln,
         ids = rules.combine_subsamples.output.combined,
-        xml = "resources/beast_xml/{analysis}.xml",
+        xml = lambda wildcards: config["beast"][wildcards.analysis]["xml"]
     output:
         trace = "results/{dataset}/beast/{analysis}/chains/{subsampling}.{dseed}.{bseed}.f.log",
         trees = "results/{dataset}/beast/{analysis}/chains/{subsampling}.{dseed}.{bseed}.f.trees"
@@ -179,8 +179,8 @@ rule beast:
         action = lambda wildcards: config["beast"][wildcards.analysis].get("action") or config["beast"].get("action"),
         demes = ",".join(list(config["data"].keys())),
         mrs = lambda wildcards: max(pd.read_csv("results/datasets/ids_" + wildcards.subsampling + "." + wildcards.dseed + ".tsv", sep = '\t')['seq_name'].str.split("|", expand=True)[2]),
-        #sampling_rate_op = lambda wildcards: "ScaleOperator" if wildcards.subsampling == "uniform" else "SmartScaleOperator",
-        # sampling_rate_op = "ScaleOperator",
+        model_params = lambda wildcards: str(config["beast"][wildcards.analysis]["model_params"]).replace(":", "=").replace(
+            "{", "\"").replace("}", "\"").replace(" ", "").replace("'", ""),
         folder_name = "results/{dataset}/beast/{analysis}/chains",
         file_name = "{subsampling}.{dseed}.{bseed}"   
     log:
@@ -208,6 +208,7 @@ rule beast:
             -D aligned_fasta={input.aln} \
             -D demes="{params.demes}" \
             -D mrs="{params.mrs}" \
+            -D {params.model_params} \
             -D chain_length={params.length} \
             -D log_every={params.logevery} \
             -D file_name={params.file_name} \
