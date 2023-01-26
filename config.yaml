@@ -1,0 +1,52 @@
+# ------------------------------------------------------------------------------
+#          ---        
+#        / o o \    Project:  cov-armee
+#        V\ Y /V    Config file for SARS-CoV-2 MTBD phylodynamic analysis pipeline
+#    (\   / - \     2 December 2022 updated 20 December 2022
+#     )) /    |     
+#     ((/__) ||     Code by Ceci VA 
+# ------------------------------------------------------------------------------
+
+# TODO specify dataset + analysis, copy from 3. cov-armee project 
+
+lapis:
+  database: "open"
+  seq_id: "genbankAccession"
+  access_key: null
+
+# One dataset per deme
+data:
+  swiss21_JanMarch:
+    ids_file: "resources/swiss21_JanMarch_noAlpha_ids.tsv"
+    nextcladeQcOverallScoreFrom: 0
+    nextcladeQcOverallScoreTo: 10
+    country: "Switzerland"
+    dateFrom: "2020-12-29"
+    dateTo: "2021-02-27"
+    n: 150
+
+subsample:
+  # method: ["random", "cases", "uniform"]
+  method: ["cases", "uniform"]
+  replicates: 1
+
+files:
+  cases: "resources/COVID19Cases_geoRegion_renamed.csv"
+  include: null
+  exclude: null
+
+ml_tree:
+  tree_args: " -nstop 50 -ninit 20 -bb 1000 " #--date TAXNAME -o 'EPI_ISL_406798|China|2019-12-26' for time tree
+
+beast:
+  xml: ["bdmmprime_wt_exposed", "bdmmprime_wt"]
+  jar: "resources/2210_BDMM-Prime.jar"
+  length: 10000000
+  time: 7200
+  mem_mb: 4096
+  threads: 10
+  replicates: 1
+  action: "resume"
+  burnin: 10
+  params:
+    death_rate: ["36.5", "73", "120"]
